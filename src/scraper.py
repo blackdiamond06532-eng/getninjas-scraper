@@ -1,105 +1,63 @@
-#!/usr/bin/env python3
 """
-Módulo de scraping para GetNinjas
-Coleta dados de profissionais de guincho
+Scraper Google Maps para profissionais de guincho
 """
 import asyncio
 import random
 import re
 from datetime import datetime
 from typing import List, Dict, Optional
-from playwright.async_api import async_playwright, Page, Browser, Playwright
-
-# Import playwright-stealth com fallback
-try:
-    from playwright_stealth import stealth_async
-    STEALTH_AVAILABLE = True
-except ImportError:
-    STEALTH_AVAILABLE = False
-    print("⚠️  playwright-stealth não disponível, usando fallback")
-
+from playwright.async_api import async_playwright, Page, Browser
 import config
-from cities import build_city_url
+from proxy_manager import ProxyManager
 
 
-class GetNinjasScraper:
-    """Scraper para coletar dados de profissionais do GetNinjas"""
+class GoogleMapsScraper:
+    """Scraper para Google Maps usando Playwright"""
     
-    def __init__(self, proxy: Optional[str] = None):
-        """
-        Inicializa o scraper
-        
-        Args:
-            proxy: URL do proxy no formato http://user:pass@ip:port
-        """
-        self.proxy = proxy
-        self.playwright: Optional[Playwright] = None
-        self.browser: Optional[Browser] = None
-        self.page: Optional[Page] = None
+    def __init__(self, proxy_manager: ProxyManager):
+        self.proxy_manager = proxy_manager
+        self.browser = None
+        self.context = None
+        self.page = None
+        self.playwright = None
     
-    async def setup(self):
-        """Inicializa o navegador Playwright"""
-        print("   🌐 Iniciando navegador...")
+    async def init_browser(self):
+        """Inicializa navegador com proxy"""
+        proxy_config = self.proxy_manager.get_proxy_config()
         
-        # Configurações do navegador
-        browser_args = [
-            '--disable-blink-features=AutomationControlled',
-            '--disable-dev-shm-usage',
-            '--no-sandbox',
-        ]
-        
-        # Configurar proxy se fornecido
-        proxy_config = None
-        if self.proxy:
-            # Extrair credenciais do proxy
-            proxy_parts = self.proxy.replace('http://', '').split('@')
-            if len(proxy_parts) == 2:
-                auth, server = proxy_parts
-                username, password = auth.split(':')
-                proxy_config = {
-                    'server': f'http://{server}',
-                    'username': username,
-                    'password': password
-                }
-            else:
-                proxy_config = {'server': self.proxy}
-        
-        # Iniciar Playwright
         self.playwright = await async_playwright().start()
         
-        # Lançar navegador
         self.browser = await self.playwright.chromium.launch(
             headless=True,
-            args=browser_args,
+            args=config.BROWSER_ARGS
+        )
+        
+        self.context = await self.browser.new_context(
+            viewport=config.VIEWPORT,
+            user_agent=config.USER_AGENT,
+            locale='pt-BR',
+            timezone_id='America/Sao_Paulo',
             proxy=proxy_config
         )
         
-        # Criar contexto e página
-        context = await self.browser.new_context(
-            viewport={'width': 1920, 'height': 1080},
-            user_agent=config.USER_AGENT
-        )
+        self.page = await self.context.new_page()
         
-        self.page = await context.new_page()
+        # Stealth mode (ignorar se falhar)
+        try:
+            from playwright_stealth import stealth_async
+            await stealth_async(self.page)
+        except Exception as e:
+            print(f"   ⚠️  Stealth mode falhou: {e}")
         
-        # Aplicar stealth mode
-        if STEALTH_AVAILABLE:
-            try:
-                await stealth_async(self.page)
-                print("   ✓ Stealth mode ativado")
-            except Exception as e:
-                print(f"   ⚠️  Stealth mode falhou: {e}")
-                await self._apply_stealth_fallback()
-        else:
-            await self._apply_stealth_fallback()
-        
-        print("   ✓ Navegador iniciado")
+        print(f"  🌐 Navegador iniciado {'com proxy' if proxy_config else 'sem proxy'}")
     
     async def cleanup(self):
-        """Fecha recursos do Playwright"""
+        """Fecha recursos"""
         try:
             if self.page:
                 await self.page.close()
+            if self.context:
+                await self.context.close()
             if self.browser:
                 await self.browser.close()
             if self.playwright:
@@ -107,196 +65,123 @@ class GetNinjasScraper:
         except Exception as e:
             print(f"   ⚠️  Erro ao fechar navegador: {e}")
     
-    async def _apply_stealth_fallback(self):
-        """Aplica técnicas básicas de anti-detecção sem playwright-stealth"""
-        try:
-            # Script para mascarar webdriver
-            await self.page.add_init_script("""
-                // Remover navigator.webdriver
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                });
-                
-                // Sobrescrever plugins
-                Object.defineProperty(navigator, 'plugins', {
-                    get: () => [1, 2, 3, 4, 5]
-                });
-                
-                // Sobrescrever languages
-                Object.defineProperty(navigator, 'languages', {
-                    get: () => ['pt-BR', 'pt', 'en-US', 'en']
-                });
-                
-                // Chrome runtime
-                window.chrome = {
-                    runtime: {}
-                };
-                
-                // Permissions
-                const originalQuery = window.navigator.permissions.query;
-                window.navigator.permissions.query = (parameters) => (
-                    parameters.name === 'notifications' ?
-                    Promise.resolve({ state: 'denied' }) :
-                    originalQuery(parameters)
-                );
-            """)
-            print("   ✓ Stealth fallback aplicado")
-        except Exception as e:
-            print(f"   ⚠️  Erro no stealth fallback: {e}")
-    
     async def scrape_city(self, city: str, state: str) -> List[Dict]:
-        """
-        Scrape profissionais de uma cidade específica
+        """Scrape profissionais de guincho em uma cidade via Google Maps"""
+        city_name = city.replace("-", " ").title()
+        search_query = config.SEARCH_QUERY_TEMPLATE.format(city=city_name, state=state.upper())
         
-        Args:
-            city: Nome da cidade
-            state: Sigla do estado
+        print(f"\n🏙️  Processando: {city_name}/{state.upper()}")
+        print(f"   🔍 Busca: \"{search_query}\"")
         
-        Returns:
-            Lista de dicionários com dados dos profissionais
-        """
-        print(f"   🔍 Acessando: {city}/{state}")
-        
-        # Construir URL
-        url = build_city_url(city, state)
-        
-        try:
-            # Acessar página
-            await self.page.goto(url, wait_until='networkidle', timeout=30000)
-            print(f"   ✓ Página carregada")
-            
-            # Aguardar carregamento
-            await asyncio.sleep(random.uniform(2, 4))
-            
-            # Scroll para carregar lazy loading
-            await self._scroll_page()
-            
-            # Extrair profissionais
-            professionals = await self._extract_professionals(city, state)
-            
-            print(f"   ✓ {len(professionals)} profissionais encontrados")
-            return professionals
-        
-        except Exception as e:
-            print(f"   ❌ Erro ao acessar {city}: {e}")
-            return []
-    
-    async def _scroll_page(self):
-        """Faz scroll na página para carregar conteúdo lazy"""
-        try:
-            for _ in range(3):
-                await self.page.evaluate('window.scrollBy(0, window.innerHeight)')
-                await asyncio.sleep(1)
-        except Exception as e:
-            print(f"   ⚠️  Erro no scroll: {e}")
-    
-    async def _extract_professionals(self, city: str, state: str) -> List[Dict]:
-        """
-        Extrai dados de profissionais da página
-        
-        Args:
-            city: Nome da cidade
-            state: Sigla do estado
-        
-        Returns:
-            Lista de dicionários com dados dos profissionais
-        """
         professionals = []
         
         try:
-            # Seletores possíveis para cards de profissionais
-            selectors = [
-                'div[data-testid*="professional"]',
-                'div[class*="professional-card"]',
-                'div[class*="ProfessionalCard"]',
-                'article[class*="professional"]',
-                'div[class*="ninja-card"]',
-            ]
+            # 1. Navegar para Google Maps
+            await self.page.goto(config.BASE_URL_GOOGLE_MAPS, wait_until='networkidle', timeout=config.TIMEOUT_NAVIGATION)
+            await asyncio.sleep(random.uniform(3, 5))
             
-            # Tentar cada seletor
-            professional_cards = []
-            for selector in selectors:
-                cards = await self.page.query_selector_all(selector)
-                if cards:
-                    professional_cards = cards
-                    print(f"   📋 Usando seletor: {selector}")
-                    break
+            # 2. Fazer busca
+            search_box = await self.page.wait_for_selector(config.SELECTORS['search_box'], timeout=config.TIMEOUT_ELEMENT)
+            await search_box.fill(search_query)
+            await search_box.press("Enter")
+            await asyncio.sleep(random.uniform(5, 7))
             
-            if not professional_cards:
-                # Fallback: buscar por estrutura genérica
-                print("   ⚠️  Seletores específicos não encontrados, tentando fallback...")
-                professional_cards = await self.page.query_selector_all('div[class*="card"]')
+            # 3. Scroll para carregar resultados
+            await self._scroll_results_feed()
             
-            # Limitar ao máximo configurado
-            cards_to_process = professional_cards[:config.MAX_PROFESSIONALS_PER_CITY]
+            # 4. Extrair profissionais
+            professionals = await self._extract_professionals(city_name, state.upper())
             
-            for idx, card in enumerate(cards_to_process, 1):
-                try:
-                    professional_data = await self._extract_professional_data(card, city, state)
-                    
-                    # Validar campos obrigatórios
-                    if professional_data and self._validate_professional(professional_data):
-                        professionals.append(professional_data)
-                        print(f"      ✓ Profissional {idx}: {professional_data['nome']}")
-                    
-                    # Delay entre extrações
-                    await asyncio.sleep(random.uniform(0.5, 1.5))
-                
-                except Exception as e:
-                    print(f"      ✗ Erro ao extrair profissional {idx}: {e}")
-                    continue
+            print(f"   ✅ {len(professionals)} profissionais encontrados")
         
         except Exception as e:
-            print(f"   ❌ Erro ao extrair profissionais: {e}")
+            print(f"   ❌ Erro ao processar {city_name}: {e}")
         
         return professionals
     
-    async def _extract_professional_data(self, card_element, city: str, state: str) -> Optional[Dict]:
-        """
-        Extrai dados de um card de profissional
-        
-        Args:
-            card_element: Elemento HTML do card
-            city: Nome da cidade
-            state: Sigla do estado
-        
-        Returns:
-            Dicionário com dados do profissional ou None
-        """
+    async def _scroll_results_feed(self):
+        """Scroll no painel de resultados para carregar mais empresas"""
         try:
-            # Extrair texto do card
-            card_text = await card_element.inner_text()
+            feed = await self.page.wait_for_selector(config.SELECTORS['results_feed'], timeout=config.TIMEOUT_ELEMENT)
             
+            for i in range(config.SCROLL_ATTEMPTS):
+                await self.page.evaluate('(el) => el.scrollTop = el.scrollHeight', feed)
+                await asyncio.sleep(config.DELAY_BETWEEN_SCROLLS)
+                
+                # Scroll de volta um pouco (comportamento humano)
+                await self.page.evaluate('(el) => el.scrollTop -= 200', feed)
+                await asyncio.sleep(0.5)
+            
+            print(f"   📜 {config.SCROLL_ATTEMPTS} scrolls realizados")
+        
+        except Exception as e:
+            print(f"   ⚠️  Erro ao fazer scroll: {e}")
+    async def _extract_professionals(self, city: str, state: str) -> List[Dict]:
+        """Extrai dados dos cards de resultados do Google Maps"""
+        professionals = []
+        
+        try:
+            # Aguardar cards carregarem
+            await asyncio.sleep(3)
+            
+            # Buscar todos os cards
+            cards = await self.page.query_selector_all(config.SELECTORS['result_cards'])
+            
+            if not cards:
+                print("   ⚠️  Nenhum card encontrado")
+                return []
+            
+            print(f"   📋 {len(cards)} cards encontrados, extraindo até {config.MAX_PROFESSIONALS_PER_CITY}...")
+            
+            # Limitar ao máximo configurado
+            cards_to_process = cards[:config.MAX_PROFESSIONALS_PER_CITY]
+            
+            for idx, card in enumerate(cards_to_process, 1):
+                try:
+                    # Clicar no card para expandir detalhes
+                    await card.click()
+                    await asyncio.sleep(config.DELAY_AFTER_CLICK)
+                    
+                    # Extrair dados
+                    prof_data = await self._extract_business_data(card, city, state)
+                    
+                    if prof_data and self._validate_professional(prof_data):
+                        professionals.append(prof_data)
+                        print(f"      ✓ {idx}. {prof_data['nome']} - {prof_data['telefone']}")
+                    else:
+                        print(f"      ✗ {idx}. Dados incompletos (sem telefone)")
+                    
+                    await asyncio.sleep(config.DELAY_BETWEEN_EXTRACTIONS)
+                
+                except Exception as e:
+                    print(f"      ✗ {idx}. Erro: {e}")
+                    continue
+        
+        except Exception as e:
+            print(f"   ❌ Erro geral na extração: {e}")
+        
+        return professionals
+    
+    async def _extract_business_data(self, card_element, city: str, state: str) -> Optional[Dict]:
+        """Extrai dados de um negócio do Google Maps"""
+        try:
             # Nome
-            nome = await self._extract_field(card_element, [
-                'h2', 'h3', '[class*="name"]', '[class*="title"]', 'strong'
-            ])
+            nome = await self._safe_extract_text(card_element, config.SELECTORS['business_name'])
             
-            # Telefone
-            telefone = self._extract_phone_from_text(card_text)
+            # Telefone - clicar no botão de telefone se existir
+            telefone = await self._extract_phone()
             
-            # Categoria/Serviço
-            categoria = await self._extract_field(card_element, [
-                '[class*="category"]', '[class*="service"]', 'span'
-            ]) or "Guincho"
+            # Categoria
+            categoria = await self._safe_extract_text(card_element, config.SELECTORS['category']) or "Guincho"
             
             # Avaliação
-            avaliacao_nota = self._extract_rating_from_text(card_text)
+            avaliacao_nota = await self._extract_rating(card_element)
             
             # Total de avaliações
-            avaliacao_total = self._extract_number_from_text(card_text, ['avaliações', 'avaliacao'])
+            avaliacao_total = await self._extract_review_count(card_element)
             
-            # Serviços negociados
-            servicos_negociados = self._extract_number_from_text(card_text, ['serviços', 'negociados', 'jobs'])
-            
-            # Tempo no GetNinjas
-            tempo_getninjas = self._extract_time_from_text(card_text)
-            
-            # URL do perfil
-            url_perfil = await self._extract_profile_url(card_element)
-            
-            # Data de coleta
-            data_coleta = datetime.now().strftime(config.DATE_FORMAT)
+            # URL do perfil (URL atual da página)
+            url_perfil = self.page.url
             
             return {
                 "nome": nome or "Nome não disponível",
@@ -306,143 +191,90 @@ class GetNinjasScraper:
                 "categoria": categoria,
                 "avaliacao_nota": avaliacao_nota,
                 "avaliacao_total": avaliacao_total,
-                "servicos_negociados": servicos_negociados,
-                "tempo_getninjas": tempo_getninjas,
-                "url_perfil": url_perfil or "",
-                "data_coleta": data_coleta
+                "servicos_negociados": 0,  # Google Maps não fornece
+                "tempo_getninjas": "N/A",  # Não aplicável
+                "url_perfil": url_perfil,
+                "data_coleta": datetime.now().strftime(config.DATE_FORMAT)
             }
         
         except Exception as e:
-            print(f"        Erro detalhado na extração: {e}")
+            print(f"        Erro na extração: {e}")
             return None
     
-    async def _extract_field(self, element, selectors: List[str]) -> Optional[str]:
-        """Tenta extrair texto usando múltiplos seletores"""
-        for selector in selectors:
-            try:
-                field = await element.query_selector(selector)
-                if field:
-                    text = await field.inner_text()
-                    if text and text.strip():
-                        return text.strip()
-            except:
-                continue
-        return None
-    
-    def _extract_phone_from_text(self, text: str) -> Optional[str]:
-        """Extrai número de telefone do texto usando regex"""
-        patterns = [
-            r'\(?\d{2}\)?\s*9?\d{4}[-\s]?\d{4}',
-            r'\d{2}\s*9\d{8}',
-            r'\d{10,11}',
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, text)
-            if match:
-                phone = re.sub(r'\D', '', match.group())
-                if len(phone) >= 10:
-                    return phone
-        
-        return None
-    
-    def _extract_rating_from_text(self, text: str) -> Optional[float]:
-        """Extrai nota de avaliação do texto"""
-        match = re.search(r'(\d+[.,]\d+)\s*(?:estrelas?|stars?)?', text, re.IGNORECASE)
-        if match:
-            try:
-                rating = float(match.group(1).replace(',', '.'))
-                if 0 <= rating <= 5:
-                    return rating
-            except:
-                pass
-        return None
-    
-    def _extract_number_from_text(self, text: str, keywords: List[str]) -> int:
-        """Extrai número associado a keywords do texto"""
-        for keyword in keywords:
-            pattern = f'(\d+)\s*{keyword}'
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                try:
-                    return int(match.group(1))
-                except:
-                    pass
-        return 0
-    
-    def _extract_time_from_text(self, text: str) -> str:
-        """Extrai informação de tempo no GetNinjas"""
-        patterns = [
-            r'Desde\s+\w+/\d{4}',
-            r'\d+\s+(?:anos?|meses?|dias?)',
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                return match.group(0)
-        
-        return "Não informado"
-    
-    async def _extract_profile_url(self, card_element) -> Optional[str]:
-        """Extrai URL do perfil do profissional"""
+    async def _safe_extract_text(self, element, selector: str) -> Optional[str]:
+        """Extrai texto de um elemento com tratamento de erro"""
         try:
-            # Procurar por links no card
-            link = await card_element.query_selector('a[href*="anuncios"], a[href*="profissional"]')
-            if link:
-                href = await link.get_attribute('href')
-                if href:
-                    # Garantir URL completa
-                    if href.startswith('http'):
-                        return href
-                    else:
-                        return f"https://www.getninjas.com.br{href}"
+            el = await element.query_selector(selector)
+            if el:
+                text = await el.inner_text()
+                return text.strip() if text else None
+        except:
+            pass
+        return None
+    
+    async def _extract_phone(self) -> Optional[str]:
+        """Extrai telefone clicando no botão de telefone"""
+        try:
+            # Procurar botão de telefone
+            phone_button = await self.page.query_selector(config.SELECTORS['phone_button'])
+            
+            if phone_button:
+                # Obter aria-label que geralmente contém o telefone
+                aria_label = await phone_button.get_attribute('aria-label')
+                
+                if aria_label:
+                    # Extrair números
+                    phone = re.sub(r'\D', '', aria_label)
+                    if len(phone) >= 10:
+                        return phone
         except:
             pass
         
         return None
     
-    def _validate_professional(self, professional: Dict) -> bool:
-        """
-        Valida se profissional tem campos obrigatórios
-        
-        Args:
-            professional: Dicionário com dados do profissional
-        
-        Returns:
-            True se válido, False caso contrário
-        """
+    async def _extract_rating(self, card_element) -> Optional[float]:
+        """Extrai nota de avaliação"""
+        try:
+            rating_el = await card_element.query_selector(config.SELECTORS['rating_stars'])
+            if rating_el:
+                aria_label = await rating_el.get_attribute('aria-label')
+                if aria_label:
+                    match = re.search(r'([\d,\.]+)', aria_label)
+                    if match:
+                        rating = float(match.group(1).replace(',', '.'))
+                        return rating if 0 <= rating <= 5 else None
+        except:
+            pass
+        return None
+    
+    async def _extract_review_count(self, card_element) -> int:
+        """Extrai total de avaliações"""
+        try:
+            review_el = await card_element.query_selector(config.SELECTORS['review_count'])
+            if review_el:
+                text = await review_el.inner_text()
+                match = re.search(r'([\d\.]+)', text)
+                if match:
+                    return int(match.group(1).replace('.', ''))
+        except:
+            pass
+        return 0
+    
+    def _validate_professional(self, data: Dict) -> bool:
+        """Valida se tem campos obrigatórios (nome + telefone)"""
         for field in config.REQUIRED_FIELDS:
-            value = professional.get(field)
-            if not value or (isinstance(value, str) and not value.strip()):
+            if not data.get(field) or data.get(field) == "":
                 return False
         return True
 
 
-# Função wrapper para usar em main.py
-async def scrape_city_wrapper(proxy_manager, city: str, state: str) -> List[Dict]:
-    """
-    Wrapper para scraping de cidade com gerenciamento de recursos
-    
-    Args:
-        proxy_manager: Instância do ProxyManager
-        city: Nome da cidade
-        state: Sigla do estado
-    
-    Returns:
-        Lista de profissionais coletados
-    """
-    proxy = proxy_manager.get_next_proxy()
-    scraper = GetNinjasScraper(proxy=proxy)
+async def scrape_city_wrapper(proxy_manager: ProxyManager, city: str, state: str) -> List[Dict]:
+    """Wrapper para scraping de uma cidade"""
+    scraper = GoogleMapsScraper(proxy_manager)
     
     try:
-        await scraper.setup()
+        await scraper.init_browser()
         professionals = await scraper.scrape_city(city, state)
         return professionals
-    
-    except Exception as e:
-        print(f"   ❌ Erro fatal no scraping de {city}: {e}")
-        return []
-    
     finally:
         await scraper.cleanup()
