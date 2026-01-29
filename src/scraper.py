@@ -32,14 +32,17 @@ class GoogleMapsScraper:
             args=config.BROWSER_ARGS
         )
         
-        self.context = await self.browser.new_context(
-            viewport=config.VIEWPORT,
-            user_agent=config.USER_AGENT,
-            locale='pt-BR',
-            timezone_id='America/Sao_Paulo',
-            proxy=proxy_config
-        )
+        context_options = {
+            'viewport': config.VIEWPORT,
+            'user_agent': config.USER_AGENT,
+            'locale': 'pt-BR',
+            'timezone_id': 'America/Sao_Paulo',
+        }
         
+        if proxy_config:
+            context_options['proxy'] = proxy_config
+        
+        self.context = await self.browser.new_context(**context_options)
         self.page = await self.context.new_page()
         
         # Stealth mode (ignorar se falhar)
@@ -47,7 +50,7 @@ class GoogleMapsScraper:
             from playwright_stealth import stealth_async
             await stealth_async(self.page)
         except Exception as e:
-            print(f"   ⚠️  Stealth mode falhou: {e}")
+            print(f"   ⚠️  Stealth mode não disponível: {e}")
         
         print(f"  🌐 Navegador iniciado {'com proxy' if proxy_config else 'sem proxy'}")
     
@@ -77,17 +80,14 @@ class GoogleMapsScraper:
         
         try:
             # 1. Navegar para Google Maps
-            await self.page.goto(config.BASE_URL_GOOGLE_MAPS, wait_until='networkidle', timeout=config.TIMEOUT_NAVIGATION)
+            await self.page.goto(config.BASE_URL_GOOGLE_MAPS, wait_until='domcontentloaded', timeout=config.TIMEOUT_NAVIGATION)
             await asyncio.sleep(random.uniform(3, 5))
             
             # 2. Fazer busca
-            search_box = await self.page.wait_for_selector(config.SELECTORS['search_box'], timeout=config.TIMEOUT_ELEMENT)
-            await search_box.fill(search_query)
-            await search_box.press("Enter")
-            await asyncio.sleep(random.uniform(5, 7))
+            await self._perform_search(search_query)
             
             # 3. Scroll para carregar resultados
-            await self._scroll_results_feed()
+            await self._scroll_results_panel()
             
             # 4. Extrair profissionais
             professionals = await self._extract_professionals(city_name, state.upper())
@@ -99,51 +99,97 @@ class GoogleMapsScraper:
         
         return professionals
     
-    async def _scroll_results_feed(self):
+    async def _perform_search(self, query: str):
+        """Realiza busca no Google Maps"""
+        try:
+            # Aguardar e preencher campo de busca
+            search_box = await self.page.wait_for_selector(
+                config.SELECTORS['search_box'], 
+                timeout=config.TIMEOUT_ELEMENT,
+                state='visible'
+            )
+            
+            await search_box.click()
+            await asyncio.sleep(0.5)
+            await search_box.fill(query)
+            await asyncio.sleep(1)
+            await search_box.press("Enter")
+            
+            # Aguardar resultados carregarem
+            await asyncio.sleep(random.uniform(5, 7))
+            
+        except Exception as e:
+            print(f"   ⚠️  Erro na busca: {e}")
+            raise
+    
+    async def _scroll_results_panel(self):
         """Scroll no painel de resultados para carregar mais empresas"""
         try:
-            feed = await self.page.wait_for_selector(config.SELECTORS['results_feed'], timeout=config.TIMEOUT_ELEMENT)
+            # Aguardar painel de resultados
+            await self.page.wait_for_selector(
+                config.SELECTORS['results_panel'], 
+                timeout=config.TIMEOUT_ELEMENT
+            )
             
+            await asyncio.sleep(2)
+            
+            # Scroll múltiplas vezes
             for i in range(config.SCROLL_ATTEMPTS):
-                await self.page.evaluate('(el) => el.scrollTop = el.scrollHeight', feed)
+                await self.page.evaluate('''
+                    () => {
+                        const panel = document.querySelector('div[role="feed"]');
+                        if (panel) {
+                            panel.scrollTop = panel.scrollHeight;
+                        }
+                    }
+                ''')
+                
                 await asyncio.sleep(config.DELAY_BETWEEN_SCROLLS)
                 
-                # Scroll de volta um pouco (comportamento humano)
-                await self.page.evaluate('(el) => el.scrollTop -= 200', feed)
+                # Pequeno scroll para cima (comportamento humano)
+                await self.page.evaluate('''
+                    () => {
+                        const panel = document.querySelector('div[role="feed"]');
+                        if (panel) {
+                            panel.scrollTop -= 200;
+                        }
+                    }
+                ''')
+                
                 await asyncio.sleep(0.5)
             
             print(f"   📜 {config.SCROLL_ATTEMPTS} scrolls realizados")
         
         except Exception as e:
             print(f"   ⚠️  Erro ao fazer scroll: {e}")
+    
     async def _extract_professionals(self, city: str, state: str) -> List[Dict]:
-        """Extrai dados dos cards de resultados do Google Maps"""
+        """Extrai dados dos resultados do Google Maps"""
         professionals = []
         
         try:
-            # Aguardar cards carregarem
             await asyncio.sleep(3)
             
-            # Buscar todos os cards
-            cards = await self.page.query_selector_all(config.SELECTORS['result_cards'])
+            # Buscar todos os itens de resultado
+            items = await self.page.query_selector_all(config.SELECTORS['result_items'])
             
-            if not cards:
-                print("   ⚠️  Nenhum card encontrado")
+            if not items:
+                print("   ⚠️  Nenhum resultado encontrado")
                 return []
             
-            print(f"   📋 {len(cards)} cards encontrados, extraindo até {config.MAX_PROFESSIONALS_PER_CITY}...")
+            print(f"   📋 {len(items)} resultados encontrados, extraindo até {config.MAX_PROFESSIONALS_PER_CITY}...")
             
             # Limitar ao máximo configurado
-            cards_to_process = cards[:config.MAX_PROFESSIONALS_PER_CITY]
+            items_to_process = items[:config.MAX_PROFESSIONALS_PER_CITY]
             
-            for idx, card in enumerate(cards_to_process, 1):
+            for idx, item in enumerate(items_to_process, 1):
                 try:
-                    # Clicar no card para expandir detalhes
-                    await card.click()
+                    # Clicar no item para expandir detalhes
+                    await item.click()
                     await asyncio.sleep(config.DELAY_AFTER_CLICK)
                     
                     # Extrair dados
-                    prof_data = await self._extract_business_data(card, city, state)
+                    prof_data = await self._extract_business_data(city, state)
                     
                     if prof_data and self._validate_professional(prof_data):
                         professionals.append(prof_data)
@@ -162,25 +208,28 @@ class GoogleMapsScraper:
         
         return professionals
     
-    async def _extract_business_data(self, card_element, city: str, state: str) -> Optional[Dict]:
+    async def _extract_business_data(self, city: str, state: str) -> Optional[Dict]:
         """Extrai dados de um negócio do Google Maps"""
         try:
-            # Nome
-            nome = await self._safe_extract_text(card_element, config.SELECTORS['business_name'])
+            # Aguardar detalhes carregarem
+            await asyncio.sleep(2)
             
-            # Telefone - clicar no botão de telefone se existir
+            # Nome
+            nome = await self._extract_text(config.SELECTORS['business_name'])
+            
+            # Telefone
             telefone = await self._extract_phone()
             
             # Categoria
-            categoria = await self._safe_extract_text(card_element, config.SELECTORS['category']) or "Guincho"
+            categoria = await self._extract_text(config.SELECTORS['category']) or "Guincho"
             
             # Avaliação
-            avaliacao_nota = await self._extract_rating(card_element)
+            avaliacao_nota = await self._extract_rating()
             
             # Total de avaliações
-            avaliacao_total = await self._extract_review_count(card_element)
+            avaliacao_total = await self._extract_review_count()
             
-            # URL do perfil (URL atual da página)
+            # URL do perfil
             url_perfil = self.page.url
             
             return {
@@ -201,59 +250,77 @@ class GoogleMapsScraper:
             print(f"        Erro na extração: {e}")
             return None
     
-    async def _safe_extract_text(self, element, selector: str) -> Optional[str]:
-        """Extrai texto de um elemento com tratamento de erro"""
+    async def _extract_text(self, selector: str) -> Optional[str]:
+        """Extrai texto de um seletor"""
         try:
-            el = await element.query_selector(selector)
-            if el:
-                text = await el.inner_text()
+            element = await self.page.wait_for_selector(selector, timeout=3000, state='visible')
+            if element:
+                text = await element.inner_text()
                 return text.strip() if text else None
         except:
             pass
         return None
     
     async def _extract_phone(self) -> Optional[str]:
-        """Extrai telefone clicando no botão de telefone"""
+        """Extrai telefone da página de detalhes"""
         try:
-            # Procurar botão de telefone
-            phone_button = await self.page.query_selector(config.SELECTORS['phone_button'])
+            # Buscar por botão de telefone ou texto com telefone
+            phone_patterns = [
+                'button[data-tooltip*="Copiar"]',
+                'button[data-item-id*="phone"]',
+                'a[href^="tel:"]',
+            ]
             
-            if phone_button:
-                # Obter aria-label que geralmente contém o telefone
-                aria_label = await phone_button.get_attribute('aria-label')
-                
-                if aria_label:
-                    # Extrair números
-                    phone = re.sub(r'\D', '', aria_label)
-                    if len(phone) >= 10:
-                        return phone
+            for pattern in phone_patterns:
+                try:
+                    element = await self.page.wait_for_selector(pattern, timeout=2000)
+                    if element:
+                        # Tentar pegar do atributo ou texto
+                        aria_label = await element.get_attribute('aria-label')
+                        data_tooltip = await element.get_attribute('data-tooltip')
+                        href = await element.get_attribute('href')
+                        text = await element.inner_text()
+                        
+                        for content in [aria_label, data_tooltip, href, text]:
+                            if content:
+                                phone = re.sub(r'\D', '', content)
+                                if len(phone) >= 10:
+                                    return phone
+                except:
+                    continue
+            
+            # Buscar telefone no conteúdo da página
+            content = await self.page.content()
+            phone_match = re.search(r'\(?\d{2}\)?\s?\d{4,5}-?\d{4}', content)
+            if phone_match:
+                phone = re.sub(r'\D', '', phone_match.group())
+                if len(phone) >= 10:
+                    return phone
+        
         except:
             pass
         
         return None
     
-    async def _extract_rating(self, card_element) -> Optional[float]:
+    async def _extract_rating(self) -> Optional[float]:
         """Extrai nota de avaliação"""
         try:
-            rating_el = await card_element.query_selector(config.SELECTORS['rating_stars'])
-            if rating_el:
-                aria_label = await rating_el.get_attribute('aria-label')
-                if aria_label:
-                    match = re.search(r'([\d,\.]+)', aria_label)
-                    if match:
-                        rating = float(match.group(1).replace(',', '.'))
-                        return rating if 0 <= rating <= 5 else None
+            rating_text = await self._extract_text(config.SELECTORS['rating'])
+            if rating_text:
+                match = re.search(r'([\d,\.]+)', rating_text)
+                if match:
+                    rating = float(match.group(1).replace(',', '.'))
+                    return rating if 0 <= rating <= 5 else None
         except:
             pass
         return None
     
-    async def _extract_review_count(self, card_element) -> int:
+    async def _extract_review_count(self) -> int:
         """Extrai total de avaliações"""
         try:
-            review_el = await card_element.query_selector(config.SELECTORS['review_count'])
-            if review_el:
-                text = await review_el.inner_text()
-                match = re.search(r'([\d\.]+)', text)
+            review_text = await self._extract_text(config.SELECTORS['review_count'])
+            if review_text:
+                match = re.search(r'([\d\.]+)', review_text)
                 if match:
                     return int(match.group(1).replace('.', ''))
         except:
