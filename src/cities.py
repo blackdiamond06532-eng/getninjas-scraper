@@ -26,7 +26,7 @@ CITIES = [
     ("São Gonçalo", "RJ"),
     ("Duque de Caxias", "RJ"),
     ("Belo Horizonte", "MG"),
-    ("Contagem", "MG"
+    ("Contagem", "MG"),
     ("Betim", "MG"),
     ("Ribeirão das Neves", "MG"),
     
