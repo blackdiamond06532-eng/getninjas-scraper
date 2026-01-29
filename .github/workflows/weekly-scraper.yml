@@ -40,6 +40,11 @@ jobs:
       - name: Criar diretórios de output
         run: mkdir -p output/results
       
+      - name: Configurar PYTHONPATH
+        run: |
+          echo "PYTHONPATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+          echo "✅ PYTHONPATH configurado: $GITHUB_WORKSPACE"
+      
       - name: Executar scraper
         env:
           PROXY_1: ${{ secrets.PROXY_1 }}
@@ -48,7 +53,9 @@ jobs:
           PROXY_4: ${{ secrets.PROXY_4 }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python src/main.py
+        run: |
+          echo "🚀 Iniciando scraper..."
+          python src/main.py
       
       - name: Upload resultados como artifacts
         if: always()
