@@ -24,12 +24,19 @@ class ProxyManager:
             proxy = os.getenv(proxy_var, '').strip()
             
             if proxy:
-                # Validar formato básico
+                # Auto-fix: adicionar http:// se não tiver
+                if not proxy.startswith('http://') and not proxy.startswith('https://'):
+                    proxy = f'http://{proxy}'
+                    print(f"🔧 {proxy_var}: adicionado http:// automaticamente")
+                
+                # Validar formato
                 if self._validate_proxy(proxy):
                     self.proxies.append(proxy)
-                    print(f"✓ {proxy_var} carregado")
+                    # Mostrar apenas IP:porta para não logar credenciais
+                    display = proxy.replace('http://', '').replace('https://', '')[:30]
+                    print(f"✓ {proxy_var} carregado: {display}...")
                 else:
-                    print(f"⚠️  {proxy_var} inválido: {proxy}")
+                    print(f"⚠️  {proxy_var} inválido após validação")
             else:
                 print(f"- {proxy_var} não configurado")
         
@@ -43,7 +50,7 @@ class ProxyManager:
         Valida formato do proxy
         
         Args:
-            proxy: String do proxy
+            proxy: String do proxy (já com http://)
         
         Returns:
             True se válido, False caso contrário
@@ -51,12 +58,19 @@ class ProxyManager:
         if not proxy:
             return False
         
-        # Formato esperado: http://IP:PORTA ou http://user:pass@IP:PORTA
+        # Deve começar com http:// ou https://
         if not proxy.startswith('http://') and not proxy.startswith('https://'):
             return False
         
-        # Validação básica de comprimento
-        if len(proxy) < 15:  # http://1.1.1.1:80 = 18 chars
+        # Remover protocolo para validar o resto
+        proxy_without_protocol = proxy.replace('http://', '').replace('https://', '')
+        
+        # Deve conter ":" para separar IP e porta
+        if ':' not in proxy_without_protocol:
+            return False
+        
+        # Validação básica de tamanho (mínimo 7 chars: 1.1.1.1:80)
+        if len(proxy_without_protocol) < 9:
             return False
         
         return True
