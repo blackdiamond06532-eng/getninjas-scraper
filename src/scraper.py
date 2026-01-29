@@ -73,7 +73,7 @@ class GoogleSearchScraper:
         
         try:
             # 1. Construir URL do Google Search
-            search_url = f"https://www.google.com/search?q={search_query.replace(' ', '+')}&num=50"
+            search_url = f"https://www.google.com/search?q={search_query.replace(' ', '+')}&num=50&hl=pt-BR&gl=BR"
             
             # 2. Navegar
             await self.page.goto(search_url, wait_until='domcontentloaded', timeout=config.TIMEOUT_NAVIGATION)
@@ -96,28 +96,59 @@ class GoogleSearchScraper:
         try:
             await asyncio.sleep(2)
             
-            # Seletores para resultados orgânicos do Google
+            # DEBUG: Verificar o que o Google retornou
+            html_content = await self.page.content()
+            
+            # Verificar bloqueios
+            if "detectado tráfego incomum" in html_content or "unusual traffic" in html_content:
+                print(f"   🚫 CAPTCHA/Bloqueio detectado!")
+                return []
+            
+            if "Before you continue" in html_content or "Antes de continuar" in html_content:
+                print(f"   🍪 Página de consentimento detectada, tentando aceitar...")
+                try:
+                    # Tentar clicar em "Aceitar tudo" ou "Accept all"
+                    accept_buttons = await self.page.query_selector_all('button')
+                    for btn in accept_buttons:
+                        text = await btn.inner_text()
+                        if any(word in text.lower() for word in ['aceitar', 'accept', 'concordo', 'agree']):
+                            await btn.click()
+                            await asyncio.sleep(2)
+                            break
+                except:
+                    pass
+            
+            # Seletores para resultados orgânicos do Google (atualizados 2026)
             result_selectors = [
-                'div.g',  # Resultado padrão
-                'div[data-sokoban-container]',  # Resultado alternativo
-                'div.Gx5Zad',  # Outro formato
+                'div.g',                    # Seletor clássico
+                'div[data-sokoban-container]',
+                'div.Gx5Zad',
+                'div[jscontroller]',
+                'div.kvH3mc',               # Novo formato
+                'div.MjjYud',               # Outro formato
             ]
             
             results = []
             for selector in result_selectors:
                 results = await self.page.query_selector_all(selector)
-                if results:
-                    print(f"   📋 Usando seletor: {selector}")
+                if len(results) > 0:
+                    print(f"   📋 Usando seletor: '{selector}' - {len(results)} elementos")
                     break
             
             if not results:
-                print("   ⚠️  Nenhum resultado encontrado")
+                # DEBUG: Listar alguns elementos da página
+                print(f"   ⚠️  Nenhum resultado com seletores conhecidos")
+                print(f"   📄 Tamanho do HTML: {len(html_content)} chars")
+                
+                # Tentar encontrar qualquer div que pareça um resultado
+                all_divs = await self.page.query_selector_all('div')
+                print(f"   🔍 Total de divs na página: {len(all_divs)}")
                 return []
             
             print(f"   📋 {len(results)} resultados encontrados, extraindo até {config.MAX_PROFESSIONALS_PER_CITY}...")
             
             # Limitar resultados
-            results_to_process = results[:config.MAX_PROFESSIONALS_PER_CITY * 2]  # Pegar mais porque alguns não terão telefone
+            results_to_process = results[:config.MAX_PROFESSIONALS_PER_CITY * 2]
             
             for idx, result in enumerate(results_to_process, 1):
                 try:
@@ -128,7 +159,6 @@ class GoogleSearchScraper:
                         professionals.append(prof_data)
                         print(f"      ✓ {len(professionals)}. {prof_data['nome']} - {prof_data['telefone']}")
                         
-                        # Parar quando atingir o máximo
                         if len(professionals) >= config.MAX_PROFESSIONALS_PER_CITY:
                             break
                     
@@ -145,8 +175,11 @@ class GoogleSearchScraper:
     async def _extract_result_data(self, result_element, city: str, state: str) -> Optional[Dict]:
         """Extrai dados de um resultado do Google Search"""
         try:
+            # Pegar TODO o texto do elemento
+            full_text = await result_element.inner_text()
+            
             # Extrair título
-            title_selectors = ['h3', 'div[role="heading"]', 'span[role="heading"]']
+            title_selectors = ['h3', 'div[role="heading"]', 'span[role="heading"]', 'div.BNeawe']
             nome = None
             for selector in title_selectors:
                 title_el = await result_element.query_selector(selector)
@@ -155,23 +188,18 @@ class GoogleSearchScraper:
                     break
             
             if not nome:
+                # Usar primeira linha do texto como nome
+                lines = full_text.split('\n')
+                nome = lines[0] if lines else None
+            
+            if not nome:
                 return None
             
-            # Extrair snippet/descrição
-            snippet_selectors = [
-                'div.VwiC3b',
-                'div[data-content-feature]',
-                'span.aCOpRe',
-                'div.lyLwlc',
-                'span[data-dobid]',
-            ]
+            # Buscar telefone no texto completo
+            telefone = self._extract_phone_from_text(full_text)
             
-            snippet_text = ""
-            for selector in snippet_selectors:
-                snippet_el = await result_element.query_selector(selector)
-                if snippet_el:
-                    snippet_text = await snippet_el.inner_text()
-                    break
+            if not telefone:
+                return None
             
             # Extrair URL
             url = ""
@@ -179,22 +207,16 @@ class GoogleSearchScraper:
             if link_el:
                 url = await link_el.get_attribute('href') or ""
             
-            # Buscar telefone no snippet ou título
-            telefone = self._extract_phone_from_text(f"{nome} {snippet_text}")
-            
-            if not telefone:
-                return None
-            
-            # Tentar extrair categoria
+            # Categoria
             categoria = "Guincho"
-            snippet_lower = snippet_text.lower()
-            if "reboque" in snippet_lower:
+            text_lower = full_text.lower()
+            if "reboque" in text_lower:
                 categoria = "Guincho e Reboque"
-            elif "24" in snippet_text or "24h" in snippet_lower:
+            elif "24" in full_text or "24h" in text_lower:
                 categoria = "Guincho 24h"
             
             return {
-                "nome": nome.strip(),
+                "nome": nome.strip()[:100],  # Limitar tamanho
                 "telefone": telefone,
                 "cidade": city,
                 "estado": state,
@@ -217,18 +239,16 @@ class GoogleSearchScraper:
         
         # Padrões de telefone brasileiros
         patterns = [
-            r'\(?\d{2}\)?\s?\d{4,5}[-\s]?\d{4}',  # (11) 99999-9999 ou 11 99999-9999
-            r'\d{2}\s?\d{4,5}[-\s]?\d{4}',        # 11999999999
-            r'\d{10,11}',                         # 11999999999 sem formatação
+            r'\(?\d{2}\)?\s?\d{4,5}[-\s]?\d{4}',
+            r'\d{2}\s?\d{4,5}[-\s]?\d{4}',
+            r'\d{10,11}',
         ]
         
         for pattern in patterns:
             matches = re.findall(pattern, text)
             for match in matches:
-                # Limpar e validar
                 phone = re.sub(r'\D', '', match)
                 if len(phone) >= 10 and len(phone) <= 11:
-                    # Validar se começa com DDD válido (11-99)
                     if phone[:2].isdigit() and 11 <= int(phone[:2]) <= 99:
                         return phone
         
