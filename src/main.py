@@ -182,7 +182,10 @@ async def main():
             
             # Delay entre cidades (comportamento humano)
             if idx < len(cities):
-                delay = random.uniform(config.DELAY_MIN, config.DELAY_MAX)
+                delay = random.uniform(
+                    config.DELAY_BETWEEN_CITIES[0], 
+                    config.DELAY_BETWEEN_CITIES[1]
+                )
                 print(f"   ⏳ Aguardando {delay:.1f}s antes da próxima cidade...")
                 await asyncio.sleep(delay)
         
