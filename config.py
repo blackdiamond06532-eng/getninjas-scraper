@@ -1,50 +1,36 @@
+#!/usr/bin/env python3
 """
-Configurações centralizadas do scraper GetNinjas
+Arquivo de configuração do scraper GetNinjas
 """
+import os
+from dotenv import load_dotenv
 
-# URLs Base
-BASE_URL_GETNINJAS = "https://www.getninjas.com.br/automoveis/guincho"
+# Carregar variáveis de ambiente do .env (local) ou secrets (GitHub Actions)
+load_dotenv()
 
-# Limites de scraping
+# Configurações de scraping
 MAX_PROFESSIONALS_PER_CITY = 5
 SCROLL_ATTEMPTS = 3
-MAX_CITIES_PER_RUN = 20
-
-# Delays (em segundos)
-DELAY_MIN = 10
-DELAY_MAX = 30
-DELAY_BETWEEN_SCROLLS = 2
-DELAY_AFTER_CLICK = 1
-
-# Timeouts (em milissegundos)
-TIMEOUT_NAVIGATION = 60000  # 60 segundos
-TIMEOUT_ELEMENT = 10000     # 10 segundos
+DELAY_BETWEEN_CITIES = (10, 30)  # segundos (min, max)
+DELAY_BETWEEN_EXTRACTIONS = (0.5, 1.5)  # segundos
+PAGE_TIMEOUT = 30000  # milissegundos (30s)
 
 # User Agent realista
 USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+    'AppleWebKit/537.36 (KHTML, like Gecko) '
+    'Chrome/120.0.0.0 Safari/537.36'
 )
-
-# Configurações do navegador
-BROWSER_ARGS = [
-    '--disable-blink-features=AutomationControlled',
-    '--disable-dev-shm-usage',
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-web-security',
-    '--disable-features=IsolateOrigins,site-per-process',
-]
-
-# Viewport padrão
-VIEWPORT = {
-    'width': 1920,
-    'height': 1080
-}
 
 # Campos obrigatórios
 REQUIRED_FIELDS = ['nome', 'telefone']
 
 # Formato de data
-DATE_FORMAT = "%Y-%m-%d"
+DATE_FORMAT = '%Y-%m-%d'
+
+# Configuração de output
+OUTPUT_DIR = 'output/results'
+OUTPUT_FILENAME_TEMPLATE = 'guincho_{date}.json'
+
+# Número de proxies configurados
+MAX_PROXIES = 11  # Atualizado para 11 proxies
