@@ -3,7 +3,8 @@ Configurações centralizadas do scraper Google Maps para guinchos
 """
 
 # URLs Base
-BASE_URL_GOOGLE_MAPS = "https://www.google.com/maps"
+# URLs Base
+BASE_URL_GOOGLE = "https://www.google.com/search"  # MUDANÇA: Search ao invés de Maps
 
 # Limites de scraping
 MAX_PROFESSIONALS_PER_CITY = 20  # 20 por cidade
