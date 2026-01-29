@@ -1,123 +1,145 @@
+#!/usr/bin/env python3
 """
-Scraper principal para extração de dados de profissionais de guincho do GetNinjas
+Módulo de scraping para GetNinjas
+Coleta dados de profissionais de guincho
 """
 import asyncio
 import random
 import re
 from datetime import datetime
 from typing import List, Dict, Optional
-from playwright.async_api import async_playwright, Page, Browser
+from playwright.async_api import async_playwright, Page, Browser, Playwright
 from playwright_stealth import stealth_async
 import config
-from proxy_manager import ProxyManager
+from cities import build_city_url
 
 
 class GetNinjasScraper:
-    """Scraper para GetNinjas usando Playwright com stealth mode"""
+    """Scraper para coletar dados de profissionais do GetNinjas"""
     
-    def __init__(self, proxy_manager: ProxyManager):
+    def __init__(self, proxy: Optional[str] = None):
         """
         Inicializa o scraper
         
         Args:
-            proxy_manager: Instância do ProxyManager para rotação de proxies
+            proxy: URL do proxy no formato http://user:pass@ip:port
         """
-        self.proxy_manager = proxy_manager
-        self.professionals = []
-        self.browser = None
-        self.context = None
-        self.page = None
+        self.proxy = proxy
+        self.playwright: Optional[Playwright] = None
+        self.browser: Optional[Browser] = None
+        self.page: Optional[Page] = None
     
-    async def init_browser(self):
-        """Inicializa navegador Playwright com configurações stealth"""
-        proxy_config = self.proxy_manager.get_proxy_config()
+    async def setup(self):
+        """Inicializa o navegador Playwright"""
+        print("   🌐 Iniciando navegador...")
         
-        playwright = await async_playwright().start()
+        # Configurações do navegador
+        browser_args = [
+            '--disable-blink-features=AutomationControlled',
+            '--disable-dev-shm-usage',
+            '--no-sandbox',
+        ]
         
-        # Argumentos do navegador para evitar detecção
-        browser_args = config.BROWSER_ARGS.copy()
+        # Configurar proxy se fornecido
+        proxy_config = None
+        if self.proxy:
+            # Extrair credenciais do proxy
+            proxy_parts = self.proxy.replace('http://', '').split('@')
+            if len(proxy_parts) == 2:
+                auth, server = proxy_parts
+                username, password = auth.split(':')
+                proxy_config = {
+                    'server': f'http://{server}',
+                    'username': username,
+                    'password': password
+                }
+            else:
+                proxy_config = {'server': self.proxy}
         
-        # Iniciar navegador
-        self.browser = await playwright.chromium.launch(
+        # Iniciar Playwright
+        self.playwright = await async_playwright().start()
+        
+        # Lançar navegador
+        self.browser = await self.playwright.chromium.launch(
             headless=True,
             args=browser_args,
             proxy=proxy_config
         )
         
-        # Criar contexto com configurações realistas
-        self.context = await self.browser.new_context(
-            viewport=config.VIEWPORT,
-            user_agent=config.USER_AGENT,
-            locale='pt-BR',
-            timezone_id='America/Sao_Paulo',
+        # Criar contexto e página
+        context = await self.browser.new_context(
+            viewport={'width': 1920, 'height': 1080},
+            user_agent=config.USER_AGENT
         )
         
-        # Criar página
-        self.page = await self.context.new_page()
+        self.page = await context.new_page()
         
         # Aplicar stealth mode
-        await stealth_async(self.page)
+        try:
+            await stealth_async(self.page)
+        except Exception as e:
+            print(f"   ⚠️  Stealth mode falhou: {e}")
         
-        print(f"  🌐 Navegador iniciado {'com proxy' if proxy_config else 'sem proxy'}")
+        print("   ✓ Navegador iniciado")
     
-    async def close_browser(self):
-        """Fecha navegador e libera recursos"""
-        if self.page:
-            await self.page.close()
-        if self.context:
-            await self.context.close()
-        if self.browser:
-            await self.browser.close()
+    async def cleanup(self):
+        """Fecha recursos do Playwright"""
+        try:
+            if self.page:
+                await self.page.close()
+            if self.browser:
+                await self.browser.close()
+            if self.playwright:
+                await self.playwright.stop()
+        except Exception as e:
+            print(f"   ⚠️  Erro ao fechar navegador: {e}")
     
     async def scrape_city(self, city: str, state: str) -> List[Dict]:
         """
         Scrape profissionais de uma cidade específica
         
         Args:
-            city: Nome da cidade (formato URL)
+            city: Nome da cidade
             state: Sigla do estado
         
         Returns:
             Lista de dicionários com dados dos profissionais
         """
-        from cities import build_city_url
+        print(f"   🔍 Acessando: {city}/{state}")
         
+        # Construir URL
         url = build_city_url(city, state)
-        city_name = city.replace("-", " ").title()
-        
-        print(f"\n🏙️  Processando: {city_name}/{state.upper()}")
-        print(f"   URL: {url}")
-        
-        professionals = []
         
         try:
-            # Navegar para página da cidade
-            await self.page.goto(url, wait_until='networkidle', timeout=config.TIMEOUT_NAVIGATION)
+            # Acessar página
+            await self.page.goto(url, wait_until='networkidle', timeout=30000)
+            print(f"   ✓ Página carregada")
+            
+            # Aguardar carregamento
             await asyncio.sleep(random.uniform(2, 4))
             
-            # Scroll para carregar profissionais (lazy loading)
+            # Scroll para carregar lazy loading
             await self._scroll_page()
             
-            # Extrair cards de profissionais
-            professionals = await self._extract_professionals(city_name, state.upper())
+            # Extrair profissionais
+            professionals = await self._extract_professionals(city, state)
             
-            print(f"   ✅ {len(professionals)} profissionais encontrados")
+            print(f"   ✓ {len(professionals)} profissionais encontrados")
+            return professionals
         
         except Exception as e:
-            print(f"   ❌ Erro ao processar {city_name}: {e}")
-        
-        return professionals
+            print(f"   ❌ Erro ao acessar {city}: {e}")
+            return []
     
     async def _scroll_page(self):
-        """Realiza scrolls progressivos para carregar conteúdo lazy loading"""
-        for i in range(config.SCROLL_ATTEMPTS):
-            # Scroll suave até o final da página
-            await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await asyncio.sleep(config.DELAY_BETWEEN_SCROLLS)
-            
-            # Scroll de volta um pouco (comportamento humano)
-            await self.page.evaluate("window.scrollBy(0, -200)")
-            await asyncio.sleep(0.5)
+        """Faz scroll na página para carregar conteúdo lazy"""
+        try:
+            for _ in range(3):
+                await self.page.evaluate('window.scrollBy(0, window.innerHeight)')
+                await asyncio.sleep(1)
+        except Exception as e:
+            print(f"   ⚠️  Erro no scroll: {e}")
+    
     async def _extract_professionals(self, city: str, state: str) -> List[Dict]:
         """
         Extrai dados de profissionais da página
@@ -133,7 +155,6 @@ class GetNinjasScraper:
         
         try:
             # Seletores possíveis para cards de profissionais
-            # O GetNinjas pode ter diferentes estruturas HTML
             selectors = [
                 'div[data-testid*="professional"]',
                 'div[class*="professional-card"]',
@@ -196,12 +217,12 @@ class GetNinjasScraper:
             # Extrair texto do card
             card_text = await card_element.inner_text()
             
-            # Nome - geralmente está em h2, h3 ou tag com classe específica
+            # Nome
             nome = await self._extract_field(card_element, [
                 'h2', 'h3', '[class*="name"]', '[class*="title"]', 'strong'
             ])
             
-            # Telefone - buscar padrões de telefone no texto
+            # Telefone
             telefone = self._extract_phone_from_text(card_text)
             
             # Categoria/Serviço
@@ -260,17 +281,15 @@ class GetNinjasScraper:
     
     def _extract_phone_from_text(self, text: str) -> Optional[str]:
         """Extrai número de telefone do texto usando regex"""
-        # Padrões de telefone brasileiro
         patterns = [
-            r'\(?\d{2}\)?\s*9?\d{4}[-\s]?\d{4}',  # (11) 99999-9999
-            r'\d{2}\s*9\d{8}',  # 11999999999
-            r'\d{10,11}',  # 1199999999 ou 11999999999
+            r'\(?\d{2}\)?\s*9?\d{4}[-\s]?\d{4}',
+            r'\d{2}\s*9\d{8}',
+            r'\d{10,11}',
         ]
         
         for pattern in patterns:
             match = re.search(pattern, text)
             if match:
-                # Remover caracteres não numéricos
                 phone = re.sub(r'\D', '', match.group())
                 if len(phone) >= 10:
                     return phone
@@ -279,7 +298,6 @@ class GetNinjasScraper:
     
     def _extract_rating_from_text(self, text: str) -> Optional[float]:
         """Extrai nota de avaliação do texto"""
-        # Procurar por padrões como "4.5", "4,5", "5.0"
         match = re.search(r'(\d+[.,]\d+)\s*(?:estrelas?|stars?)?', text, re.IGNORECASE)
         if match:
             try:
@@ -304,7 +322,6 @@ class GetNinjasScraper:
     
     def _extract_time_from_text(self, text: str) -> str:
         """Extrai informação de tempo no GetNinjas"""
-        # Padrões como "Desde dez/2024", "2 anos", etc
         patterns = [
             r'Desde\s+\w+/\d{4}',
             r'\d+\s+(?:anos?|meses?|dias?)',
@@ -313,49 +330,49 @@ class GetNinjasScraper:
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
-                return match.group()
+                return match.group(0)
         
         return "Não informado"
     
-    async def _extract_profile_url(self, element) -> Optional[str]:
+    async def _extract_profile_url(self, card_element) -> Optional[str]:
         """Extrai URL do perfil do profissional"""
         try:
-            # Procurar por link dentro do card
-            link = await element.query_selector('a[href*="/anuncios/"]')
-            if not link:
-                link = await element.query_selector('a[href*="/profissionais/"]')
-            
+            # Procurar por links no card
+            link = await card_element.query_selector('a[href*="anuncios"], a[href*="profissional"]')
             if link:
                 href = await link.get_attribute('href')
                 if href:
-                    # Se for URL relativa, completar
-                    if href.startswith('/'):
+                    # Garantir URL completa
+                    if href.startswith('http'):
+                        return href
+                    else:
                         return f"https://www.getninjas.com.br{href}"
-                    return href
         except:
             pass
         
         return None
     
-    def _validate_professional(self, data: Dict) -> bool:
+    def _validate_professional(self, professional: Dict) -> bool:
         """
         Valida se profissional tem campos obrigatórios
         
         Args:
-            data: Dicionário com dados do profissional
+            professional: Dicionário com dados do profissional
         
         Returns:
             True se válido, False caso contrário
         """
         for field in config.REQUIRED_FIELDS:
-            if not data.get(field) or data.get(field) == "":
+            value = professional.get(field)
+            if not value or (isinstance(value, str) and not value.strip()):
                 return False
         return True
 
 
-async def scrape_city_wrapper(proxy_manager: ProxyManager, city: str, state: str) -> List[Dict]:
+# Função wrapper para usar em main.py
+async def scrape_city_wrapper(proxy_manager, city: str, state: str) -> List[Dict]:
     """
-    Wrapper para scraping de uma cidade com gerenciamento de browser
+    Wrapper para scraping de cidade com gerenciamento de recursos
     
     Args:
         proxy_manager: Instância do ProxyManager
@@ -363,14 +380,19 @@ async def scrape_city_wrapper(proxy_manager: ProxyManager, city: str, state: str
         state: Sigla do estado
     
     Returns:
-        Lista de profissionais extraídos
+        Lista de profissionais coletados
     """
-    scraper = GetNinjasScraper(proxy_manager)
+    proxy = proxy_manager.get_next_proxy()
+    scraper = GetNinjasScraper(proxy=proxy)
     
     try:
-        await scraper.init_browser()
+        await scraper.setup()
         professionals = await scraper.scrape_city(city, state)
         return professionals
     
+    except Exception as e:
+        print(f"   ❌ Erro fatal no scraping de {city}: {e}")
+        return []
+    
     finally:
-        await scraper.close_browser()
+        await scraper.cleanup()
