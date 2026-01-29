@@ -1,5 +1,6 @@
 """
 Gerenciador de 11 proxies com rotação automática
+Suporta proxies com e sem autenticação
 """
 import os
 from typing import List, Optional
@@ -21,7 +22,11 @@ class ProxyManager:
     def _load_proxies(self) -> List[str]:
         """
         Carrega 11 proxies das variáveis de ambiente PROXY_1 até PROXY_11
-        Formato esperado: http://usuario:senha@ip:porta
+        
+        Formatos aceitos:
+        - http://usuario:senha@ip:porta
+        - http://ip:porta
+        - ip:porta (será convertido para http://ip:porta)
         """
         proxies = []
         
@@ -30,8 +35,11 @@ class ProxyManager:
             proxy = os.getenv(proxy_key)
             
             if proxy:
-                if proxy.startswith("http://") or proxy.startswith("https://"):
-                    proxies.append(proxy)
+                # Normalizar formato
+                normalized = self._normalize_proxy_format(proxy)
+                
+                if normalized:
+                    proxies.append(normalized)
                     print(f"  ✓ {proxy_key} carregado")
                 else:
                     print(f"  ✗ {proxy_key} formato inválido")
@@ -39,6 +47,30 @@ class ProxyManager:
                 print(f"  - {proxy_key} não configurado")
         
         return proxies
+    
+    def _normalize_proxy_format(self, proxy: str) -> Optional[str]:
+        """
+        Normaliza proxy para formato Playwright
+        
+        Aceita:
+        - http://user:pass@ip:port
+        - http://ip:port
+        - ip:port
+        
+        Returns:
+            Proxy normalizado ou None se inválido
+        """
+        proxy = proxy.strip()
+        
+        # Já está no formato correto
+        if proxy.startswith("http://") or proxy.startswith("https://"):
+            return proxy
+        
+        # Formato ip:porta simples
+        if ":" in proxy and not proxy.startswith("http"):
+            return f"http://{proxy}"
+        
+        return None
     
     def get_next_proxy(self) -> Optional[str]:
         """Retorna próximo proxy da rotação sequencial"""
@@ -51,13 +83,19 @@ class ProxyManager:
         return proxy
     
     def get_proxy_config(self) -> Optional[dict]:
-        """Retorna configuração do proxy no formato Playwright"""
+        """
+        Retorna configuração do proxy no formato Playwright
+        
+        Returns:
+            Dict com configuração ou None
+        """
         proxy_url = self.get_next_proxy()
         
         if not proxy_url:
             return None
         
         try:
+            # Proxy com autenticação: http://user:pass@ip:port
             if "@" in proxy_url:
                 protocol_auth, server = proxy_url.split("@")
                 protocol, auth = protocol_auth.split("://")
@@ -68,6 +106,8 @@ class ProxyManager:
                     "username": username,
                     "password": password
                 }
+            
+            # Proxy sem autenticação: http://ip:port
             else:
                 return {"server": proxy_url}
         
@@ -78,3 +118,7 @@ class ProxyManager:
     def get_total_proxies(self) -> int:
         """Retorna quantidade de proxies disponíveis"""
         return len(self.proxies)
+    
+    def reset_rotation(self):
+        """Reseta o índice de rotação para o início"""
+        self.current_index = 0
