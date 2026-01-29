@@ -1,102 +1,80 @@
-#!/usr/bin/env python3
 """
-Gerenciador de proxies rotativos
-Carrega proxies das variáveis de ambiente e rotaciona entre eles
+Gerenciador de 11 proxies com rotação automática
 """
 import os
 from typing import List, Optional
 
 
 class ProxyManager:
-    """Gerencia rotação de proxies"""
+    """Gerencia rotação de 11 proxies residenciais"""
     
     def __init__(self):
-        """Inicializa o gerenciador carregando proxies das env vars"""
-        self.proxies: List[str] = []
+        """Inicializa carregando 11 proxies das variáveis de ambiente"""
+        self.proxies = self._load_proxies()
         self.current_index = 0
-        self._load_proxies()
-    
-    def _load_proxies(self):
-        """Carrega proxies das variáveis de ambiente PROXY_1 até PROXY_11"""
-        # Carregar até 11 proxies
-        for i in range(1, 12):
-            proxy_var = f'PROXY_{i}'
-            proxy = os.getenv(proxy_var, '').strip()
-            
-            if proxy:
-                # Auto-fix: adicionar http:// se não tiver
-                if not proxy.startswith('http://') and not proxy.startswith('https://'):
-                    proxy = f'http://{proxy}'
-                    print(f"🔧 {proxy_var}: adicionado http:// automaticamente")
-                
-                # Validar formato
-                if self._validate_proxy(proxy):
-                    self.proxies.append(proxy)
-                    # Mostrar apenas IP:porta para não logar credenciais
-                    display = proxy.replace('http://', '').replace('https://', '')[:30]
-                    print(f"✓ {proxy_var} carregado: {display}...")
-                else:
-                    print(f"⚠️  {proxy_var} inválido após validação")
-            else:
-                print(f"- {proxy_var} não configurado")
         
         if not self.proxies:
             print("⚠️  AVISO: Nenhum proxy configurado!")
         else:
             print(f"✅ {len(self.proxies)} proxies carregados")
     
-    def _validate_proxy(self, proxy: str) -> bool:
+    def _load_proxies(self) -> List[str]:
         """
-        Valida formato do proxy
-        
-        Args:
-            proxy: String do proxy (já com http://)
-        
-        Returns:
-            True se válido, False caso contrário
+        Carrega 11 proxies das variáveis de ambiente PROXY_1 até PROXY_11
+        Formato esperado: http://usuario:senha@ip:porta
         """
-        if not proxy:
-            return False
+        proxies = []
         
-        # Deve começar com http:// ou https://
-        if not proxy.startswith('http://') and not proxy.startswith('https://'):
-            return False
+        for i in range(1, 12):  # PROXY_1 até PROXY_11
+            proxy_key = f"PROXY_{i}"
+            proxy = os.getenv(proxy_key)
+            
+            if proxy:
+                if proxy.startswith("http://") or proxy.startswith("https://"):
+                    proxies.append(proxy)
+                    print(f"  ✓ {proxy_key} carregado")
+                else:
+                    print(f"  ✗ {proxy_key} formato inválido")
+            else:
+                print(f"  - {proxy_key} não configurado")
         
-        # Remover protocolo para validar o resto
-        proxy_without_protocol = proxy.replace('http://', '').replace('https://', '')
-        
-        # Deve conter ":" para separar IP e porta
-        if ':' not in proxy_without_protocol:
-            return False
-        
-        # Validação básica de tamanho (mínimo 7 chars: 1.1.1.1:80)
-        if len(proxy_without_protocol) < 9:
-            return False
-        
-        return True
+        return proxies
     
     def get_next_proxy(self) -> Optional[str]:
-        """
-        Retorna o próximo proxy na rotação
-        
-        Returns:
-            String do proxy ou None se não houver proxies
-        """
+        """Retorna próximo proxy da rotação sequencial"""
         if not self.proxies:
             return None
         
         proxy = self.proxies[self.current_index]
-        
-        # Avançar para o próximo (circular)
         self.current_index = (self.current_index + 1) % len(self.proxies)
         
         return proxy
     
-    def get_proxy_count(self) -> int:
-        """
-        Retorna quantidade de proxies carregados
+    def get_proxy_config(self) -> Optional[dict]:
+        """Retorna configuração do proxy no formato Playwright"""
+        proxy_url = self.get_next_proxy()
         
-        Returns:
-            Número de proxies
-        """
+        if not proxy_url:
+            return None
+        
+        try:
+            if "@" in proxy_url:
+                protocol_auth, server = proxy_url.split("@")
+                protocol, auth = protocol_auth.split("://")
+                username, password = auth.split(":")
+                
+                return {
+                    "server": f"http://{server}",
+                    "username": username,
+                    "password": password
+                }
+            else:
+                return {"server": proxy_url}
+        
+        except Exception as e:
+            print(f"❌ Erro ao processar proxy: {e}")
+            return None
+    
+    def get_total_proxies(self) -> int:
+        """Retorna quantidade de proxies disponíveis"""
         return len(self.proxies)
