@@ -12,7 +12,7 @@ from playwright.async_api import async_playwright, Page, Browser, Playwright
 
 # Import playwright-stealth com fallback
 try:
-    from playwright_stealth import stealth_async
+    from playwright_stealth import stealtsh_async
     STEALTH_AVAILABLE = True
 except ImportError:
     STEALTH_AVAILABLE = False
