@@ -55,14 +55,15 @@ DATE_FORMAT = "%Y-%m-%d"
 
 # Seletores Google Maps (podem mudar)
 SELECTORS = {
-    'search_box': '#searchboxinput',
-    'results_feed': 'div[role="feed"]',
-    'result_cards': 'div.Nv2PK',  # Cards de resultados
-    'business_name': '.qBF1Pd',
-    'rating_stars': 'span[aria-label*="estrelas"]',
-    'review_count': '.UY7F9',
-    'category': 'div.W4Efsd > span',
-    'phone_button': 'button[data-item-id*="phone"]',
-    'website_button': 'button[data-item-id*="authority"]',
+    'search_box': 'input#searchboxinput',
+    'search_button': 'button#searchbox-searchbutton',
+    'results_panel': 'div[role="feed"]',
+    'result_items': 'div.Nv2PK',
+    'business_name': 'div.qBF1Pd',
+    'rating': 'span.MW4etd',
+    'review_count': 'span.UY7F9',
+    'category': 'button[jsaction*="category"]',
+    'phone': 'button[data-tooltip*="Copiar número"]',
+    'website': 'a[data-tooltip="Abrir website"]',
     'address': 'button[data-item-id="address"]',
 }
