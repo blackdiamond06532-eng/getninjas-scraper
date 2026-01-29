@@ -1,36 +1,68 @@
-#!/usr/bin/env python3
 """
-Arquivo de configuração do scraper GetNinjas
+Configurações centralizadas do scraper Google Maps para guinchos
 """
-import os
-from dotenv import load_dotenv
 
-# Carregar variáveis de ambiente do .env (local) ou secrets (GitHub Actions)
-load_dotenv()
+# URLs Base
+BASE_URL_GOOGLE_MAPS = "https://www.google.com/maps"
 
-# Configurações de scraping
-MAX_PROFESSIONALS_PER_CITY = 5
-SCROLL_ATTEMPTS = 3
-DELAY_BETWEEN_CITIES = (10, 30)  # segundos (min, max)
-DELAY_BETWEEN_EXTRACTIONS = (0.5, 1.5)  # segundos
-PAGE_TIMEOUT = 30000  # milissegundos (30s)
+# Limites de scraping
+MAX_PROFESSIONALS_PER_CITY = 20  # 20 por cidade
+MAX_CITIES_PER_DAY = 5  # 5 cidades por dia = 100 profissionais/dia
+SCROLL_ATTEMPTS = 15  # Mais scrolls para carregar 20 profissionais
+
+# Delays (em segundos) - MAIS LENTOS para evitar bloqueio
+DELAY_MIN = 30  # 30 segundos mínimo entre cidades
+DELAY_MAX = 60  # 60 segundos máximo entre cidades
+DELAY_BETWEEN_SCROLLS = 3  # 3 segundos entre scrolls
+DELAY_AFTER_CLICK = 2  # 2 segundos após clicar
+DELAY_BETWEEN_EXTRACTIONS = 1.5  # Delay entre extrair cada profissional
+
+# Timeouts (em milissegundos)
+TIMEOUT_NAVIGATION = 90000  # 90 segundos
+TIMEOUT_ELEMENT = 15000     # 15 segundos
+
+# Termo de busca
+SEARCH_QUERY_TEMPLATE = "guincho {city} {state}"  # Ex: "guincho Campinas SP"
 
 # User Agent realista
 USER_AGENT = (
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-    'AppleWebKit/537.36 (KHTML, like Gecko) '
-    'Chrome/120.0.0.0 Safari/537.36'
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
 )
+
+# Configurações do navegador
+BROWSER_ARGS = [
+    '--disable-blink-features=AutomationControlled',
+    '--disable-dev-shm-usage',
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-web-security',
+    '--disable-features=IsolateOrigins,site-per-process',
+]
+
+# Viewport padrão
+VIEWPORT = {
+    'width': 1920,
+    'height': 1080
+}
 
 # Campos obrigatórios
 REQUIRED_FIELDS = ['nome', 'telefone']
 
 # Formato de data
-DATE_FORMAT = '%Y-%m-%d'
+DATE_FORMAT = "%Y-%m-%d"
 
-# Configuração de output
-OUTPUT_DIR = 'output/results'
-OUTPUT_FILENAME_TEMPLATE = 'guincho_{date}.json'
-
-# Número de proxies configurados
-MAX_PROXIES = 11  # Atualizado para 11 proxies
+# Seletores Google Maps (podem mudar)
+SELECTORS = {
+    'search_box': '#searchboxinput',
+    'results_feed': 'div[role="feed"]',
+    'result_cards': 'div.Nv2PK',  # Cards de resultados
+    'business_name': '.qBF1Pd',
+    'rating_stars': 'span[aria-label*="estrelas"]',
+    'review_count': '.UY7F9',
+    'category': 'div.W4Efsd > span',
+    'phone_button': 'button[data-item-id*="phone"]',
+    'website_button': 'button[data-item-id*="authority"]',
+    'address': 'button[data-item-id="address"]',
+}
