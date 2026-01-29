@@ -1,6 +1,6 @@
 """
 Lista de 100 cidades brasileiras para scraping rotativo
-Divididas em 5 grupos de 20 cidades cada
+Divididas em grupos para rotacao diaria
 """
 
 # Lista completa de 100 cidades brasileiras (cidade, UF)
@@ -93,7 +93,7 @@ CITIES_LIST = [
     ("campo-grande", "ms"),
     ("dourados", "ms"),
     
-    # Grupo 5 - Dia 81-100: Cidades médias complementares
+    # Grupo 5 - Dia 81-100: Cidades medias complementares
     ("florianopolis", "sc"),
     ("joinville", "sc"),
     ("blumenau", "sc"),
@@ -117,29 +117,38 @@ CITIES_LIST = [
 ]
 
 
-def get_weekly_cities(week_number):
+def get_daily_cities():
     """
-    Retorna 20 cidades baseado no número da semana ISO
-    
-    Args:
-        week_number: Número da semana (1-53)
+    Retorna 5 cidades para scraping diario (meta: 100 profissionais/dia)
+    Rotaciona atraves das 100 cidades em 20 dias
     
     Returns:
-        Lista de tuplas (cidade, uf) com 20 cidades
+        Lista de 5 tuplas (cidade, uf)
     """
-    # Calcular qual grupo usar (semanas 1-5, depois repete)
-    group_index = ((week_number - 1) % 5)
+    import datetime
     
-    # Cada grupo tem 20 cidades
-    start_index = group_index * 20
-    end_index = start_index + 20
+    # Usar dia do ano para rotacao (1-365)
+    day_of_year = datetime.date.today().timetuple().tm_yday
+    
+    # Cada grupo tem 5 cidades
+    # 100 cidades / 5 = 20 grupos
+    # Roda tudo em 20 dias, depois reinicia
+    group_index = (day_of_year - 1) % 20
+    
+    start_index = group_index * 5
+    end_index = start_index + 5
     
     cities = CITIES_LIST[start_index:end_index]
     
-    print(f"📍 Semana {week_number} - Grupo {group_index + 1}")
+    print(f"📍 Dia {day_of_year} do ano - Grupo {group_index + 1}/20")
     print(f"🏙️  Cidades selecionadas: {len(cities)}")
+    for city, state in cities:
+        city_name = city.replace("-", " ").title()
+        print(f"   • {city_name}/{state.upper()}")
     
     return cities
 
 
-def build_
+def get_all_cities():
+    """Retorna todas as 100 cidades"""
+    return CITIES_LIST
