@@ -23,7 +23,9 @@ class GoogleSearchScraper:
     
     async def init_browser(self):
         """Inicializa navegador com proxy"""
-        proxy_config = self.proxy_manager.get_proxy_config()
+               proxy_config = None  # DESABILITADO TEMPORARIAMENTE PARA TESTE
+        # proxy_config = self.proxy_manager.get_proxy_config()
+
         
         self.playwright = await async_playwright().start()
         
