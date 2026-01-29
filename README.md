@@ -1,6 +1,6 @@
-# 🚗 Scraper GetNinjas - Guincho
+# 🚗 Scraper GetNinjas -
 
-Scraper automatizado para coleta de dados de profissionais de guincho da plataforma GetNinjas, com execução semanal via GitHub Actions e envio de resultados via Telegram.
+Scraper automatizado para coleta de dados de profissionais de  plataforma GetNinjas, com execução semanal via GitHub Actions e envio de resultados via Telegram.
 
 ## 📋 Funcionalidades
 
@@ -23,7 +23,7 @@ Cada profissional contém 11 campos:
 | `telefone` | string | Número de telefone (apenas dígitos) |
 | `cidade` | string | Nome da cidade |
 | `estado` | string | Sigla UF (2 caracteres) |
-| `categoria` | string | Tipo de serviço (ex: "Guincho 24h") |
+| `categoria` | string | Tipo de serviço (ex: "xxxxxxx") |
 | `avaliacao_nota` | float/null | Nota de 0 a 5 |
 | `avaliacao_total` | integer | Quantidade de avaliações |
 | `servicos_negociados` | integer | Jobs completados |
@@ -40,19 +40,7 @@ Cada profissional contém 11 campos:
 - **GitHub Actions** - CI/CD automático
 - **Telegram Bot API** - Entrega de resultados
 
-## 🚀 Configuração
 
-### 1. Criar Bot no Telegram
-
-1. Abra o Telegram e procure por `@BotFather`
-2. Envie `/newbot` e siga as instruções
-3. Copie o **token** gerado (formato: `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`)
-4. Obtenha seu **chat_id**:
-   - Envie qualquer mensagem para seu bot
-   - Acesse: `https://api.telegram.org/bot<SEU_TOKEN>/getUpdates`
-   - Copie o valor de `"chat":{"id": -1001234567890}`
-
-### 2. Configurar Secrets no GitHub
 
 Vá em: **Settings → Secrets and variables → Actions → New repository secret**
 
