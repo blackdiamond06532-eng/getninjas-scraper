@@ -9,7 +9,15 @@ import re
 from datetime import datetime
 from typing import List, Dict, Optional
 from playwright.async_api import async_playwright, Page, Browser, Playwright
-from playwright_stealth import stealth_async
+
+# Import playwright-stealth com fallback
+try:
+    from playwright_stealth import stealth_async
+    STEALTH_AVAILABLE = True
+except ImportError:
+    STEALTH_AVAILABLE = False
+    print("⚠️  playwright-stealth não disponível, usando fallback")
+
 import config
 from cities import build_city_url
 
@@ -75,10 +83,15 @@ class GetNinjasScraper:
         self.page = await context.new_page()
         
         # Aplicar stealth mode
-        try:
-            await stealth_async(self.page)
-        except Exception as e:
-            print(f"   ⚠️  Stealth mode falhou: {e}")
+        if STEALTH_AVAILABLE:
+            try:
+                await stealth_async(self.page)
+                print("   ✓ Stealth mode ativado")
+            except Exception as e:
+                print(f"   ⚠️  Stealth mode falhou: {e}")
+                await self._apply_stealth_fallback()
+        else:
+            await self._apply_stealth_fallback()
         
         print("   ✓ Navegador iniciado")
     
@@ -93,6 +106,43 @@ class GetNinjasScraper:
                 await self.playwright.stop()
         except Exception as e:
             print(f"   ⚠️  Erro ao fechar navegador: {e}")
+    
+    async def _apply_stealth_fallback(self):
+        """Aplica técnicas básicas de anti-detecção sem playwright-stealth"""
+        try:
+            # Script para mascarar webdriver
+            await self.page.add_init_script("""
+                // Remover navigator.webdriver
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+                
+                // Sobrescrever plugins
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5]
+                });
+                
+                // Sobrescrever languages
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['pt-BR', 'pt', 'en-US', 'en']
+                });
+                
+                // Chrome runtime
+                window.chrome = {
+                    runtime: {}
+                };
+                
+                // Permissions
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                    Promise.resolve({ state: 'denied' }) :
+                    originalQuery(parameters)
+                );
+            """)
+            print("   ✓ Stealth fallback aplicado")
+        except Exception as e:
+            print(f"   ⚠️  Erro no stealth fallback: {e}")
     
     async def scrape_city(self, city: str, state: str) -> List[Dict]:
         """
