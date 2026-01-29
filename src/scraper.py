@@ -23,9 +23,7 @@ class GoogleSearchScraper:
     
     async def init_browser(self):
         """Inicializa navegador com proxy"""
-               proxy_config = None  # DESABILITADO TEMPORARIAMENTE PARA TESTE
-        # proxy_config = self.proxy_manager.get_proxy_config()
-
+        proxy_config = None  # DESABILITADO TEMPORARIAMENTE PARA TESTE
         
         self.playwright = await async_playwright().start()
         
@@ -102,12 +100,14 @@ class GoogleSearchScraper:
             result_selectors = [
                 'div.g',  # Resultado padrão
                 'div[data-sokoban-container]',  # Resultado alternativo
+                'div.Gx5Zad',  # Outro formato
             ]
             
             results = []
             for selector in result_selectors:
                 results = await self.page.query_selector_all(selector)
                 if results:
+                    print(f"   📋 Usando seletor: {selector}")
                     break
             
             if not results:
@@ -146,7 +146,7 @@ class GoogleSearchScraper:
         """Extrai dados de um resultado do Google Search"""
         try:
             # Extrair título
-            title_selectors = ['h3', 'div[role="heading"]']
+            title_selectors = ['h3', 'div[role="heading"]', 'span[role="heading"]']
             nome = None
             for selector in title_selectors:
                 title_el = await result_element.query_selector(selector)
@@ -162,6 +162,8 @@ class GoogleSearchScraper:
                 'div.VwiC3b',
                 'div[data-content-feature]',
                 'span.aCOpRe',
+                'div.lyLwlc',
+                'span[data-dobid]',
             ]
             
             snippet_text = ""
@@ -185,9 +187,10 @@ class GoogleSearchScraper:
             
             # Tentar extrair categoria
             categoria = "Guincho"
-            if "reboque" in snippet_text.lower():
+            snippet_lower = snippet_text.lower()
+            if "reboque" in snippet_lower:
                 categoria = "Guincho e Reboque"
-            elif "24" in snippet_text or "24h" in snippet_text.lower():
+            elif "24" in snippet_text or "24h" in snippet_lower:
                 categoria = "Guincho 24h"
             
             return {
@@ -216,15 +219,18 @@ class GoogleSearchScraper:
         patterns = [
             r'\(?\d{2}\)?\s?\d{4,5}[-\s]?\d{4}',  # (11) 99999-9999 ou 11 99999-9999
             r'\d{2}\s?\d{4,5}[-\s]?\d{4}',        # 11999999999
+            r'\d{10,11}',                         # 11999999999 sem formatação
         ]
         
         for pattern in patterns:
-            match = re.search(pattern, text)
-            if match:
+            matches = re.findall(pattern, text)
+            for match in matches:
                 # Limpar e validar
-                phone = re.sub(r'\D', '', match.group())
-                if len(phone) >= 10:
-                    return phone
+                phone = re.sub(r'\D', '', match)
+                if len(phone) >= 10 and len(phone) <= 11:
+                    # Validar se começa com DDD válido (11-99)
+                    if phone[:2].isdigit() and 11 <= int(phone[:2]) <= 99:
+                        return phone
         
         return None
     
