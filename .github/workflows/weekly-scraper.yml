@@ -1,0 +1,56 @@
+name: GetNinjas Weekly Scraper
+
+on:
+  # Execução automática toda segunda-feira às 06:00 UTC (03:00 BRT)
+  schedule:
+    - cron: '0 6 * * 1'
+  
+  # Permitir execução manual
+  workflow_dispatch:
+
+jobs:
+  scrape-getninjas:
+    name: Scrape GetNinjas Guincho
+    runs-on: ubuntu-latest
+    timeout-minutes: 180  # 3 horas
+    
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+      
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Instalar dependências Python
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Instalar Playwright e navegadores
+        run: |
+          playwright install chromium
+          playwright install-deps
+      
+      - name: Criar diretórios de output
+        run: mkdir -p output/results
+      
+      - name: Executar scraper
+        env:
+          PROXY_1: ${{ secrets.PROXY_1 }}
+          PROXY_2: ${{ secrets.PROXY_2 }}
+          PROXY_3: ${{ secrets.PROXY_3 }}
+          PROXY_4: ${{ secrets.PROXY_4 }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python src/main.py
+      
+      - name: Upload resultados como artifacts
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: scraping-results
+          path: output/results/*.json
+          retention-days: 90
