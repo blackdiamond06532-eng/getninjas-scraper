@@ -1,16 +1,16 @@
-name: GetNinjas Weekly Scraper
+name: Google Maps Daily Scraper
 
 on:
-  # Execução automática toda segunda-feira às 06:00 UTC (03:00 BRT)
+  # Execução DIÁRIA às 06:00 UTC (03:00 horário de Brasília)
   schedule:
-    - cron: '0 6 * * 1'
+    - cron: '0 6 * * *'  # Todos os dias
   
   # Permitir execução manual
   workflow_dispatch:
 
 jobs:
-  scrape-getninjas:
-    name: Scrape GetNinjas Guincho
+  scrape-google-maps:
+    name: Scrape Google Maps Guincho
     runs-on: ubuntu-latest
     timeout-minutes: 180  # 3 horas
     
@@ -19,31 +19,23 @@ jobs:
         uses: actions/checkout@v4
       
       - name: Setup Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.11'
           cache: 'pip'
       
       - name: Instalar dependências Python
         run: |
-          python -m pip install --upgrade pip
+          pip install --upgrade pip
           pip install -r requirements.txt
       
-      - name: Instalar Playwright Chromium
+      - name: Instalar Playwright e navegadores
         run: |
           playwright install chromium
-      
-      - name: Instalar dependências do sistema para Playwright
-        run: |
-          playwright install-deps chromium
+          playwright install-deps
       
       - name: Criar diretórios de output
         run: mkdir -p output/results
-      
-      - name: Configurar PYTHONPATH
-        run: |
-          echo "PYTHONPATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
-          echo "✅ PYTHONPATH configurado: $GITHUB_WORKSPACE"
       
       - name: Executar scraper
         env:
@@ -51,15 +43,20 @@ jobs:
           PROXY_2: ${{ secrets.PROXY_2 }}
           PROXY_3: ${{ secrets.PROXY_3 }}
           PROXY_4: ${{ secrets.PROXY_4 }}
+          PROXY_5: ${{ secrets.PROXY_5 }}
+          PROXY_6: ${{ secrets.PROXY_6 }}
+          PROXY_7: ${{ secrets.PROXY_7 }}
+          PROXY_8: ${{ secrets.PROXY_8 }}
+          PROXY_9: ${{ secrets.PROXY_9 }}
+          PROXY_10: ${{ secrets.PROXY_10 }}
+          PROXY_11: ${{ secrets.PROXY_11 }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          echo "🚀 Iniciando scraper..."
-          python src/main.py
+        run: python src/main.py
       
       - name: Upload resultados como artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: scraping-results
           path: output/results/*.json
