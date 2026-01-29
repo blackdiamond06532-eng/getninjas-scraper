@@ -196,4 +196,6 @@ def build_city_url(city: str, state: str) -> str:
     state_normalized = state.lower()
     
     # Construir URL
-    url = f"https://www.getninjas.com.br/automoveis/guincho/{city_normalized}-{state_normaliz
+    url = f"https://www.getninjas.com.br/automoveis/guincho/{city_normalized}-{state_normalized}"
+    
+    return url
