@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Script principal para orquestrar execução completa do scraper GetNinjas
+Script principal para orquestrar execução completa do scraper Google Maps
+Meta: 100 profissionais/dia (5 cidades × 20 profissionais)
 """
 import os
 import sys
@@ -15,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from proxy_manager import ProxyManager
 from telegram_bot import TelegramBot
-from cities import get_weekly_cities
+from cities import get_daily_cities  # MUDANÇA: diário ao invés de semanal
 from scraper import scrape_city_wrapper
 import config
 
@@ -44,13 +45,6 @@ def load_environment():
     
     print("  ✅ Configurações carregadas")
     return True
-
-
-def get_current_week_number() -> int:
-    """Retorna número da semana ISO atual"""
-    week_num = date.today().isocalendar()[1]
-    print(f"📅 Semana ISO atual: {week_num}")
-    return week_num
 
 
 def remove_duplicates(professionals: List[Dict]) -> List[Dict]:
@@ -133,7 +127,7 @@ def save_results_locally(professionals: List[Dict], output_dir: str = "output/re
 async def main():
     """Função principal de execução"""
     print("=" * 60)
-    print("🚗 SCRAPER GETNINJAS - GUINCHO")
+    print("🗺️  SCRAPER GOOGLE MAPS - GUINCHO")
     print("=" * 60)
     print()
     
@@ -156,13 +150,13 @@ async def main():
     
     print()
     
-    # 3. Obter cidades da semana
-    week_number = get_current_week_number()
-    cities = get_weekly_cities(week_number)
+    # 3. Obter cidades do dia (5 cidades rotativas)
+    print("📅 Selecionando cidades do dia...")
+    cities = get_daily_cities()  # MUDANÇA: 5 cidades/dia
     
     print()
     print("=" * 60)
-    print(f"🎯 INICIANDO COLETA - {len(cities)} CIDADES")
+    print(f"🎯 META: {len(cities)} cidades × {config.MAX_PROFESSIONALS_PER_CITY} profissionais = {len(cities) * config.MAX_PROFESSIONALS_PER_CITY} esperados")
     print("=" * 60)
     
     # 4. Loop de scraping
@@ -180,12 +174,9 @@ async def main():
                 all_professionals.extend(professionals)
                 successful_cities += 1
             
-            # Delay entre cidades (comportamento humano)
+            # Delay entre cidades (30-60s para evitar bloqueio do Google)
             if idx < len(cities):
-                delay = random.uniform(
-                    config.DELAY_BETWEEN_CITIES[0], 
-                    config.DELAY_BETWEEN_CITIES[1]
-                )
+                delay = random.uniform(config.DELAY_MIN, config.DELAY_MAX)
                 print(f"   ⏳ Aguardando {delay:.1f}s antes da próxima cidade...")
                 await asyncio.sleep(delay)
         
@@ -232,9 +223,10 @@ async def main():
         state = prof.get('estado', 'N/A')
         states_count[state] = states_count.get(state, 0) + 1
     
-    print(f"\n🗺️  Distribuição por estado:")
-    for state, count in sorted(states_count.items(), key=lambda x: x[1], reverse=True)[:5]:
-        print(f"   {state}: {count} profissionais")
+    if states_count:
+        print(f"\n🗺️  Distribuição por estado:")
+        for state, count in sorted(states_count.items(), key=lambda x: x[1], reverse=True)[:5]:
+            print(f"   {state}: {count} profissionais")
     
     # 8. Enviar para Telegram
     print()
@@ -260,8 +252,8 @@ async def main():
         return 0
     
     else:
-        error_msg = f"Nenhum profissional coletado. Cidades: {successful_cities}/{len(cities)}"
-        print(f"\n⚠️  {error_msg}")
+        error_msg = f"⚠️  Nenhum profissional coletado. Cidades: {successful_cities}/{len(cities)}"
+        print(f"\n{error_msg}")
         
         # Notificar erro no Telegram
         telegram_bot.send_error_notification(error_msg)
